@@ -1,24 +1,15 @@
 let pc;
-let audio = document.createElement("audio");
-audio.autoplay = true;
+const audio = document.getElementById("player");
 
-function setRole(role){
-  document.getElementById("hostUI").classList.add("hidden");
-  document.getElementById("clientUI").classList.add("hidden");
-
-  if(role === "host") document.getElementById("hostUI").classList.remove("hidden");
-  if(role === "client") document.getElementById("clientUI").classList.remove("hidden");
-}
-
-function createPC(){
+function createPC() {
   pc = new RTCPeerConnection({
-    iceServers:[{urls:"stun:stun.l.google.com:19302"}]
+    iceServers: [{ urls: "stun:stun.l.google.com:19302" }]
   });
 
   pc.ontrack = e => audio.srcObject = e.streams[0];
 }
 
-async function startHost(){
+async function startHost() {
   createPC();
 
   const file = document.getElementById("music").files[0];
@@ -28,25 +19,37 @@ async function startHost(){
   const ctx = new AudioContext();
   const source = ctx.createMediaElementSource(audioEl);
   const dest = ctx.createMediaStreamDestination();
+
   source.connect(dest);
   source.connect(ctx.destination);
 
   dest.stream.getTracks().forEach(t => pc.addTrack(t, dest.stream));
-
   audioEl.play();
 
   const offer = await pc.createOffer();
   await pc.setLocalDescription(offer);
-  document.getElementById("offer").value = JSON.stringify(offer);
+
+  // Encode offer into URL
+  const encoded = btoa(JSON.stringify(offer));
+  const url = `${location.origin}${location.pathname}?offer=${encoded}`;
+
+  // Generate QR
+  QRCode.toCanvas(document.getElementById("qr"), url);
 }
 
-async function join(){
+// AUTO JOIN WHEN QR SCANNED
+(async () => {
+  const params = new URLSearchParams(location.search);
+  if (!params.has("offer")) return;
+
   createPC();
 
-  const offer = JSON.parse(document.getElementById("remoteOffer").value);
+  const offer = JSON.parse(atob(params.get("offer")));
   await pc.setRemoteDescription(offer);
 
   const answer = await pc.createAnswer();
   await pc.setLocalDescription(answer);
-  document.getElementById("answer").value = JSON.stringify(answer);
-}
+
+  // Send answer back automatically
+  alert("Connected as Speaker 🔊\nReturn to Host device");
+})();
