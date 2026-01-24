@@ -1,12 +1,34 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-  <title>Host - Music Sender</title>
+  <meta charset="UTF-8">
+  <title>Multi-Phone Speaker</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="stylesheet" href="style.css">
 </head>
 <body>
-<h2>🎶 HOST</h2>
-<input type="file" id="music" accept="audio/*">
-<button onclick="start()">Start Streaming</button>
+
+<div class="card">
+  <h2>🎶 Multi-Phone Speaker</h2>
+  <p class="desc">Use one phone as HOST and others as SPEAKERS</p>
+
+  <div class="buttons">
+    <button onclick="setRole('host')">🎧 Host</button>
+    <button onclick="setRole('client')">🔊 Speaker</button>
+  </div>
+
+  <div id="hostUI" class="hidden">
+    <input type="file" accept="audio/*" id="music">
+    <button onclick="startHost()">Start Streaming</button>
+    <textarea id="offer" placeholder="Offer will appear here"></textarea>
+  </div>
+
+  <div id="clientUI" class="hidden">
+    <textarea id="remoteOffer" placeholder="Paste Host Offer here"></textarea>
+    <button onclick="join()">Connect</button>
+    <textarea id="answer" placeholder="Answer will appear here"></textarea>
+  </div>
+</div>
 
 <script src="script.js"></script>
 </body>
