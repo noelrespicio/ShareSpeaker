@@ -1,27 +1,25 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
 <meta charset="UTF-8">
-<title>Multi-Phone Speaker</title>
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>WiFi Speaker</title>
+<meta name="viewport" content="width=device-width">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
 
 <div class="card">
-  <h2>🎶 Multi-Phone Speaker</h2>
-  <p class="desc">Scan QR to connect as speaker</p>
+  <h2>🎶 Wi-Fi Speaker</h2>
 
-  <div id="hostUI">
-    <input type="file" id="music" accept="audio/*">
-    <button onclick="startHost()">🎧 Start Host</button>
-    <canvas id="qr"></canvas>
-  </div>
+  <input id="room" placeholder="Room name (ex: bahay)">
+  <input type="file" id="music" accept="audio/*">
 
-  <audio id="player" controls></audio>
+  <button onclick="join()">Join Room</button>
+  <button onclick="start()">Play Music</button>
+
+  <p id="status">Waiting...</p>
 </div>
 
-<script src="https://cdn.jsdelivr.net/npm/qrcode/build/qrcode.min.js"></script>
 <script src="script.js"></script>
 </body>
 </html>
