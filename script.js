@@ -1,24 +1,45 @@
 const status = document.getElementById("status");
-const ws = new WebSocket("wss://YOUR-SERVER-URL"); // 🔥 PALITAN ITO
+const SERVER = "wss://YOUR-SERVER-URL"; // palitan
 
+let ws;
 let pc;
+let room = "";
 let isHost = false;
-let audio = new Audio();
+
+const audio = new Audio();
 audio.autoplay = true;
 
-function joinRoom(){
-  const room = document.getElementById("room").value;
-  if(!room) return alert("Enter room name");
+// CONNECT ON LOAD
+connectWS();
+
+function connectWS(){
+  ws = new WebSocket(SERVER);
 
   ws.onopen = () => {
+    status.innerText = "Connected to server";
+  };
+
+  ws.onmessage = handleSignal;
+}
+
+function joinRoom(){
+  room = document.getElementById("room").value.trim();
+  if(!room) return alert("Enter room name");
+
+  if(ws.readyState === WebSocket.OPEN){
     ws.send(JSON.stringify({ type:"join", room }));
     status.innerText = "Joined room: " + room;
-  };
+  } else {
+    ws.onopen = () => {
+      ws.send(JSON.stringify({ type:"join", room }));
+      status.innerText = "Joined room: " + room;
+    };
+  }
 }
 
 function createPC(){
   const pc = new RTCPeerConnection({
-    iceServers:[{urls:"stun:stun.l.google.com:19302"}]
+    iceServers:[{ urls:"stun:stun.l.google.com:19302" }]
   });
 
   pc.ontrack = e => audio.srcObject = e.streams[0];
@@ -33,6 +54,8 @@ function createPC(){
 
 // HOST
 async function startHost(){
+  if(!room) return alert("Join room first");
+
   isHost = true;
   pc = createPC();
 
@@ -51,20 +74,22 @@ async function startHost(){
 
   const offer = await pc.createOffer();
   await pc.setLocalDescription(offer);
-  ws.send(JSON.stringify({ offer }));
 
+  ws.send(JSON.stringify({ offer }));
   status.innerText = "🎧 Hosting music…";
 }
 
-// SIGNAL HANDLING
-ws.onmessage = async msg => {
+// SIGNALS
+async function handleSignal(msg){
   const data = JSON.parse(msg.data);
 
   if(data.offer && !isHost){
     pc = createPC();
     await pc.setRemoteDescription(data.offer);
+
     const answer = await pc.createAnswer();
     await pc.setLocalDescription(answer);
+
     ws.send(JSON.stringify({ answer }));
     status.innerText = "🔊 Speaker connected";
   }
@@ -74,6 +99,6 @@ ws.onmessage = async msg => {
   }
 
   if(data.candidate && pc){
-    pc.addIceCandidate(data.candidate);
+    await pc.addIceCandidate(data.candidate);
   }
-};
+    }
