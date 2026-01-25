@@ -2,36 +2,14 @@
 <html>
 <head>
 <meta charset="UTF-8">
-<title>WiFi Speaker</title>
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Wi-Fi Speaker</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
 <style>
-body{
-  font-family:system-ui;
-  background:#0f172a;
-  color:white;
-  display:flex;
-  justify-content:center;
-  align-items:center;
-  height:100vh;
-}
-.card{
-  background:#111827;
-  padding:20px;
-  border-radius:12px;
-  width:100%;
-  max-width:360px;
-}
-input,button{
-  width:100%;
-  margin-top:10px;
-  padding:10px;
-  border-radius:8px;
-  border:none;
-}
-button{
-  background:#2563eb;
-  color:white;
-}
+body{font-family:system-ui;background:#0f172a;color:#fff;
+display:flex;justify-content:center;align-items:center;height:100vh;}
+.card{background:#111827;padding:20px;border-radius:12px;width:100%;max-width:360px;}
+input,button{width:100%;padding:10px;margin-top:10px;border-radius:8px;border:none;}
+button{background:#2563eb;color:#fff;}
 </style>
 </head>
 <body>
@@ -39,13 +17,13 @@ button{
 <div class="card">
   <h2>🎶 Wi-Fi Speaker</h2>
 
-  <input id="room" placeholder="Room name (same sa lahat)">
+  <input id="room" placeholder="Room name">
   <input type="file" id="music" accept="audio/*">
 
   <button onclick="joinRoom()">Join Room</button>
-  <button onclick="startMusic()">Play Music</button>
+  <button onclick="startHost()">Play Music (Host)</button>
 
-  <p id="status">Not connected</p>
+  <p id="status">Idle</p>
 </div>
 
 <script src="script.js"></script>
