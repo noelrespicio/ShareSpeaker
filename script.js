@@ -1,46 +1,46 @@
-const ws = new WebSocket("wss://your-public-signaling-server");
+const status = document.getElementById("status");
+const ws = new WebSocket("wss://YOUR-SERVER-URL"); // 🔥 PALITAN ITO
+
 let pc;
+let isHost = false;
 let audio = new Audio();
 audio.autoplay = true;
 
-function join() {
+function joinRoom(){
   const room = document.getElementById("room").value;
+  if(!room) return alert("Enter room name");
+
   ws.onopen = () => {
     ws.send(JSON.stringify({ type:"join", room }));
-    document.getElementById("status").innerText = "Joined room ✔";
+    status.innerText = "Joined room: " + room;
   };
 }
-
-ws.onmessage = async msg => {
-  const data = JSON.parse(msg.data);
-
-  if (data.offer) {
-    pc = createPC();
-    await pc.setRemoteDescription(data.offer);
-    const answer = await pc.createAnswer();
-    await pc.setLocalDescription(answer);
-    ws.send(JSON.stringify({ answer }));
-  }
-
-  if (data.stream) {
-    audio.srcObject = data.stream;
-  }
-};
 
 function createPC(){
   const pc = new RTCPeerConnection({
     iceServers:[{urls:"stun:stun.l.google.com:19302"}]
   });
+
   pc.ontrack = e => audio.srcObject = e.streams[0];
+
+  pc.onicecandidate = e => {
+    if(e.candidate){
+      ws.send(JSON.stringify({ candidate:e.candidate }));
+    }
+  };
   return pc;
 }
 
-async function start(){
+// HOST
+async function startHost(){
+  isHost = true;
   pc = createPC();
 
   const file = document.getElementById("music").files[0];
-  const el = new Audio(URL.createObjectURL(file));
+  if(!file) return alert("Select music");
+
   const ctx = new AudioContext();
+  const el = new Audio(URL.createObjectURL(file));
   const src = ctx.createMediaElementSource(el);
   const dest = ctx.createMediaStreamDestination();
 
@@ -52,4 +52,28 @@ async function start(){
   const offer = await pc.createOffer();
   await pc.setLocalDescription(offer);
   ws.send(JSON.stringify({ offer }));
+
+  status.innerText = "🎧 Hosting music…";
 }
+
+// SIGNAL HANDLING
+ws.onmessage = async msg => {
+  const data = JSON.parse(msg.data);
+
+  if(data.offer && !isHost){
+    pc = createPC();
+    await pc.setRemoteDescription(data.offer);
+    const answer = await pc.createAnswer();
+    await pc.setLocalDescription(answer);
+    ws.send(JSON.stringify({ answer }));
+    status.innerText = "🔊 Speaker connected";
+  }
+
+  if(data.answer && isHost){
+    await pc.setRemoteDescription(data.answer);
+  }
+
+  if(data.candidate && pc){
+    pc.addIceCandidate(data.candidate);
+  }
+};
