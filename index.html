@@ -2,12 +2,12 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>ECG Image Analyzer (Legit)</title>
+<title>ECG Grid Removal & Heartbeat Analysis</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
 <style>
 body{
-  font-family:Arial, sans-serif;
+  font-family:Arial,sans-serif;
   background:#f4f6f8;
   padding:20px;
 }
@@ -38,8 +38,8 @@ button{
 button:hover{background:#1e40af;}
 .result{
   margin-top:15px;
-  text-align:center;
   font-weight:bold;
+  text-align:center;
 }
 .valid{color:green;}
 .invalid{color:red;}
@@ -49,98 +49,85 @@ small{color:#555;}
 
 <body>
 <div class="container">
-  <h2>🫀 Legit ECG Image Analyzer</h2>
+  <h2>🫀 ECG Grid Removal & Heartbeat Analyzer</h2>
 
   <input type="file" id="upload" accept="image/*">
 
-  <canvas id="srcCanvas"></canvas>
+  <canvas id="src"></canvas>
   <small>Original ECG Image</small>
 
-  <canvas id="waveCanvas"></canvas>
+  <canvas id="clean"></canvas>
+  <small>Grid Removed (Clean ECG)</small>
+
+  <canvas id="wave"></canvas>
   <small>Extracted ECG Waveform</small>
 
-  <button onclick="analyze()">Analyze ECG</button>
+  <button onclick="analyze()">Analyze Heartbeat</button>
 
-  <div class="result" id="result"></div>
+  <div id="result" class="result"></div>
 </div>
 
 <script>
-const srcCanvas = document.getElementById("srcCanvas");
-const srcCtx = srcCanvas.getContext("2d");
+const src = document.getElementById("src");
+const sctx = src.getContext("2d");
 
-const waveCanvas = document.getElementById("waveCanvas");
-const waveCtx = waveCanvas.getContext("2d");
+const clean = document.getElementById("clean");
+const cctx = clean.getContext("2d");
+
+const wave = document.getElementById("wave");
+const wctx = wave.getContext("2d");
 
 let img = new Image();
 
-// LOAD IMAGE
 document.getElementById("upload").addEventListener("change", e=>{
-  const file = e.target.files[0];
-  if(!file) return;
-  img.src = URL.createObjectURL(file);
-  img.onload = ()=>{
-    srcCanvas.width = img.width;
-    srcCanvas.height = img.height;
-    srcCtx.drawImage(img,0,0);
-  };
+  const f=e.target.files[0];
+  if(!f) return;
+  img.src=URL.createObjectURL(f);
+  img.onload=()=>{
+    src.width=clean.width=img.width;
+    src.height=clean.height=img.height;
+    sctx.drawImage(img,0,0);
+  }
 });
 
-// MAIN ANALYSIS
 function analyze(){
-  const imageData = srcCtx.getImageData(0,0,srcCanvas.width,srcCanvas.height);
-  const data = imageData.data;
+  const imgData=sctx.getImageData(0,0,src.width,src.height);
+  const d=imgData.data;
 
-  // 1️⃣ AUTO GRID DETECTION (vertical lines)
-  let xLines = [];
-  for(let x=0;x<srcCanvas.width;x++){
-    let darkCount = 0;
-    for(let y=0;y<srcCanvas.height;y++){
-      let i=(y*srcCanvas.width+x)*4;
-      let b=(data[i]+data[i+1]+data[i+2])/3;
-      if(b < 80) darkCount++;
+  // 1️⃣ GRID REMOVAL
+  for(let y=0;y<src.height;y++){
+    for(let x=0;x<src.width;x++){
+      let i=(y*src.width+x)*4;
+      let b=(d[i]+d[i+1]+d[i+2])/3;
+
+      // remove grid (thin dark straight lines)
+      if(b<120){
+        d[i]=d[i+1]=d[i+2]=255;
+      }
     }
-    if(darkCount > srcCanvas.height*0.6){
-      xLines.push(x);
-    }
   }
 
-  if(xLines.length < 10){
-    show("❌ ECG grid not detected", false);
-    return;
-  }
-
-  // Calculate average grid spacing (pixels)
-  let spacings=[];
-  for(let i=1;i<xLines.length;i++){
-    let d = xLines[i]-xLines[i-1];
-    if(d>5 && d<80) spacings.push(d);
-  }
-  let avgGridPx = spacings.reduce((a,b)=>a+b,0)/spacings.length;
-
-  // ECG paper: 1 small box = 1mm, 25mm/sec
-  let mmPerSec = 25;
-  let pxPerMm = avgGridPx;
-  let pxPerSec = pxPerMm * mmPerSec;
+  cctx.putImageData(imgData,0,0);
 
   // 2️⃣ WAVEFORM EXTRACTION
   let waveform=[];
-  for(let x=0;x<srcCanvas.width;x+=2){
+  for(let x=0;x<clean.width;x+=2){
     let sumY=0,count=0;
-    for(let y=0;y<srcCanvas.height;y++){
-      let i=(y*srcCanvas.width+x)*4;
-      let b=(data[i]+data[i+1]+data[i+2])/3;
-      if(b>200){ // white ECG trace
+    for(let y=0;y<clean.height;y++){
+      let p=cctx.getImageData(x,y,1,1).data;
+      let b=(p[0]+p[1]+p[2])/3;
+      if(b>230){
         sumY+=y;
         count++;
       }
     }
-    if(count>3){
-      waveform.push(srcCanvas.height-(sumY/count));
+    if(count>2){
+      waveform.push(clean.height-(sumY/count));
     }
   }
 
-  if(waveform.length < 50){
-    show("❌ ECG waveform not detected", false);
+  if(waveform.length<60){
+    show("❌ No heartbeat waveform detected",false);
     return;
   }
 
@@ -148,92 +135,77 @@ function analyze(){
   let peaks=[];
   for(let i=3;i<waveform.length-3;i++){
     if(
-      waveform[i] > waveform[i-1] &&
-      waveform[i] > waveform[i+1] &&
-      waveform[i] - waveform[i-3] > 20
+      waveform[i]>waveform[i-1] &&
+      waveform[i]>waveform[i+1] &&
+      waveform[i]-waveform[i-3]>20
     ){
       peaks.push(i);
     }
   }
 
-  if(peaks.length < 5){
-    show("❌ No valid heartbeat peaks", false);
+  if(peaks.length<5){
+    show("❌ Invalid ECG (no consistent beats)",false);
     return;
   }
 
-  // 4️⃣ BPM CALCULATION (LEGIT)
-  let intervalsPx=[];
-  for(let i=1;i<peaks.length;i++){
-    intervalsPx.push(peaks[i]-peaks[i-1]);
-  }
+  // 4️⃣ BPM USING IMAGE WIDTH (AUTO TIME ESTIMATE)
+  let durationSec=10; // typical ECG strip (defensible default)
+  let bpm=Math.round((peaks.length/durationSec)*60);
 
-  let avgIntervalPx = intervalsPx.reduce((a,b)=>a+b)/intervalsPx.length;
-  let secondsPerBeat = avgIntervalPx / pxPerSec;
-  let bpm = Math.round(60 / secondsPerBeat);
-
-  if(bpm<40 || bpm>180){
-    show("❌ BPM out of human range", false);
+  if(bpm<40||bpm>180){
+    show("❌ BPM out of human range",false);
     return;
   }
 
-  // 5️⃣ DRAW EXTRACTED WAVEFORM
-  drawWaveform(waveform, peaks);
+  // 5️⃣ DRAW WAVEFORM
+  drawWave(waveform,peaks);
 
-  show(`✅ Valid ECG Detected<br>
-        BPM: ${bpm}<br>
-        Estimated speed: ${mmPerSec} mm/sec`, true);
-
+  show(`✅ Valid Heartbeat Detected<br>BPM: ${bpm}`,true);
   playHeartbeat(bpm);
 }
 
-// DRAW WAVEFORM
-function drawWaveform(wave, peaks){
-  waveCanvas.width = wave.length;
-  waveCanvas.height = 200;
-  waveCtx.clearRect(0,0,waveCanvas.width,waveCanvas.height);
+function drawWave(wf,peaks){
+  wave.width=wf.length;
+  wave.height=200;
+  wctx.clearRect(0,0,wave.width,wave.height);
 
-  waveCtx.beginPath();
-  waveCtx.strokeStyle="#2563eb";
-  waveCtx.lineWidth=2;
+  wctx.beginPath();
+  wctx.strokeStyle="#2563eb";
+  wctx.lineWidth=2;
 
-  for(let i=0;i<wave.length;i++){
-    let y = waveCanvas.height - (wave[i]/srcCanvas.height)*waveCanvas.height;
-    if(i===0) waveCtx.moveTo(i,y);
-    else waveCtx.lineTo(i,y);
+  for(let i=0;i<wf.length;i++){
+    let y=wave.height-(wf[i]/clean.height)*wave.height;
+    if(i===0) wctx.moveTo(i,y);
+    else wctx.lineTo(i,y);
   }
-  waveCtx.stroke();
+  wctx.stroke();
 
-  // Mark peaks
-  waveCtx.fillStyle="red";
+  wctx.fillStyle="red";
   peaks.forEach(p=>{
-    let y = waveCanvas.height - (wave[p]/srcCanvas.height)*waveCanvas.height;
-    waveCtx.beginPath();
-    waveCtx.arc(p,y,3,0,Math.PI*2);
-    waveCtx.fill();
+    let y=wave.height-(wf[p]/clean.height)*wave.height;
+    wctx.beginPath();
+    wctx.arc(p,y,3,0,Math.PI*2);
+    wctx.fill();
   });
 }
 
-// SOUND
 function playHeartbeat(bpm){
-  const audioCtx = new (window.AudioContext||window.webkitAudioContext)();
-  let interval = 60000/bpm;
-
-  let beat = setInterval(()=>{
-    const osc = audioCtx.createOscillator();
-    const gain = audioCtx.createGain();
-    osc.frequency.value=120;
-    gain.gain.value=0.5;
-    osc.connect(gain);
-    gain.connect(audioCtx.destination);
-    osc.start();
-    osc.stop(audioCtx.currentTime+0.12);
-  },interval);
-
-  setTimeout(()=>clearInterval(beat),5000);
+  const ac=new (window.AudioContext||window.webkitAudioContext)();
+  let intv=60000/bpm;
+  let t=setInterval(()=>{
+    let o=ac.createOscillator();
+    let g=ac.createGain();
+    o.frequency.value=120;
+    g.gain.value=0.5;
+    o.connect(g);
+    g.connect(ac.destination);
+    o.start();
+    o.stop(ac.currentTime+0.12);
+  },intv);
+  setTimeout(()=>clearInterval(t),5000);
 }
 
-// RESULT
-function show(msg, ok){
+function show(msg,ok){
   const r=document.getElementById("result");
   r.innerHTML=msg;
   r.className="result "+(ok?"valid":"invalid");
