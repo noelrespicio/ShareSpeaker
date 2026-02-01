@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Legit Heartbeat Image Scanner</title>
+<title>ECG Image Analyzer (Legit)</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
 <style>
@@ -12,7 +12,7 @@ body{
   padding:20px;
 }
 .container{
-  max-width:650px;
+  max-width:900px;
   margin:auto;
   background:#fff;
   padding:20px;
@@ -20,12 +20,15 @@ body{
   box-shadow:0 4px 12px rgba(0,0,0,.15);
 }
 h2{text-align:center;}
-input, button{
+canvas{
   width:100%;
-  padding:10px;
+  border:1px solid #ddd;
   margin-top:10px;
 }
 button{
+  width:100%;
+  padding:10px;
+  margin-top:10px;
   background:#2563eb;
   color:#fff;
   border:none;
@@ -33,11 +36,6 @@ button{
   cursor:pointer;
 }
 button:hover{background:#1e40af;}
-canvas{
-  width:100%;
-  margin-top:10px;
-  border:1px solid #ddd;
-}
 .result{
   margin-top:15px;
   text-align:center;
@@ -45,146 +43,200 @@ canvas{
 }
 .valid{color:green;}
 .invalid{color:red;}
+small{color:#555;}
 </style>
 </head>
 
 <body>
 <div class="container">
-  <h2>🫀 Legit Heartbeat Image Scanner</h2>
+  <h2>🫀 Legit ECG Image Analyzer</h2>
 
   <input type="file" id="upload" accept="image/*">
-  <canvas id="canvas"></canvas>
 
-  <button onclick="analyze()">Analyze Image</button>
+  <canvas id="srcCanvas"></canvas>
+  <small>Original ECG Image</small>
+
+  <canvas id="waveCanvas"></canvas>
+  <small>Extracted ECG Waveform</small>
+
+  <button onclick="analyze()">Analyze ECG</button>
 
   <div class="result" id="result"></div>
 </div>
 
 <script>
-const canvas = document.getElementById("canvas");
-const ctx = canvas.getContext("2d");
+const srcCanvas = document.getElementById("srcCanvas");
+const srcCtx = srcCanvas.getContext("2d");
+
+const waveCanvas = document.getElementById("waveCanvas");
+const waveCtx = waveCanvas.getContext("2d");
+
 let img = new Image();
 
 // LOAD IMAGE
 document.getElementById("upload").addEventListener("change", e=>{
   const file = e.target.files[0];
   if(!file) return;
-
   img.src = URL.createObjectURL(file);
   img.onload = ()=>{
-    canvas.width = img.width;
-    canvas.height = img.height;
-    ctx.drawImage(img,0,0);
-  }
+    srcCanvas.width = img.width;
+    srcCanvas.height = img.height;
+    srcCtx.drawImage(img,0,0);
+  };
 });
 
 // MAIN ANALYSIS
 function analyze(){
-  const imageData = ctx.getImageData(0,0,canvas.width,canvas.height);
+  const imageData = srcCtx.getImageData(0,0,srcCanvas.width,srcCanvas.height);
   const data = imageData.data;
 
-  let waveform = [];
-
-  // Extract waveform column-by-column
-  for(let x=0; x<canvas.width; x+=4){
-    let sumY = 0, count = 0;
-
-    for(let y=0; y<canvas.height; y++){
-      let i = (y * canvas.width + x) * 4;
-      let brightness = (data[i]+data[i+1]+data[i+2]) / 3;
-
-      if(brightness > 200){
-        sumY += y;
-        count++;
-      }
+  // 1️⃣ AUTO GRID DETECTION (vertical lines)
+  let xLines = [];
+  for(let x=0;x<srcCanvas.width;x++){
+    let darkCount = 0;
+    for(let y=0;y<srcCanvas.height;y++){
+      let i=(y*srcCanvas.width+x)*4;
+      let b=(data[i]+data[i+1]+data[i+2])/3;
+      if(b < 80) darkCount++;
     }
-
-    if(count > 5){
-      waveform.push(canvas.height - (sumY / count));
+    if(darkCount > srcCanvas.height*0.6){
+      xLines.push(x);
     }
   }
 
-  // Reject if signal too small
-  if(waveform.length < 30){
-    show("❌ Not a heartbeat image", false);
+  if(xLines.length < 10){
+    show("❌ ECG grid not detected", false);
     return;
   }
 
-  // PEAK DETECTION
-  let peaks = [];
-  for(let i=2;i<waveform.length-2;i++){
+  // Calculate average grid spacing (pixels)
+  let spacings=[];
+  for(let i=1;i<xLines.length;i++){
+    let d = xLines[i]-xLines[i-1];
+    if(d>5 && d<80) spacings.push(d);
+  }
+  let avgGridPx = spacings.reduce((a,b)=>a+b,0)/spacings.length;
+
+  // ECG paper: 1 small box = 1mm, 25mm/sec
+  let mmPerSec = 25;
+  let pxPerMm = avgGridPx;
+  let pxPerSec = pxPerMm * mmPerSec;
+
+  // 2️⃣ WAVEFORM EXTRACTION
+  let waveform=[];
+  for(let x=0;x<srcCanvas.width;x+=2){
+    let sumY=0,count=0;
+    for(let y=0;y<srcCanvas.height;y++){
+      let i=(y*srcCanvas.width+x)*4;
+      let b=(data[i]+data[i+1]+data[i+2])/3;
+      if(b>200){ // white ECG trace
+        sumY+=y;
+        count++;
+      }
+    }
+    if(count>3){
+      waveform.push(srcCanvas.height-(sumY/count));
+    }
+  }
+
+  if(waveform.length < 50){
+    show("❌ ECG waveform not detected", false);
+    return;
+  }
+
+  // 3️⃣ PEAK DETECTION
+  let peaks=[];
+  for(let i=3;i<waveform.length-3;i++){
     if(
       waveform[i] > waveform[i-1] &&
       waveform[i] > waveform[i+1] &&
-      waveform[i] - waveform[i-2] > 20
+      waveform[i] - waveform[i-3] > 20
     ){
       peaks.push(i);
     }
   }
 
-  // RULE 1: Minimum peaks
   if(peaks.length < 5){
-    show("❌ No valid heartbeat detected", false);
+    show("❌ No valid heartbeat peaks", false);
     return;
   }
 
-  // INTERVAL CONSISTENCY
-  let intervals = [];
+  // 4️⃣ BPM CALCULATION (LEGIT)
+  let intervalsPx=[];
   for(let i=1;i<peaks.length;i++){
-    intervals.push(peaks[i] - peaks[i-1]);
+    intervalsPx.push(peaks[i]-peaks[i-1]);
   }
 
-  let avg = intervals.reduce((a,b)=>a+b)/intervals.length;
-  let variance = intervals.reduce((a,b)=>a+Math.abs(b-avg),0)/intervals.length;
+  let avgIntervalPx = intervalsPx.reduce((a,b)=>a+b)/intervalsPx.length;
+  let secondsPerBeat = avgIntervalPx / pxPerSec;
+  let bpm = Math.round(60 / secondsPerBeat);
 
-  // RULE 2: Regular rhythm
-  if(variance > avg * 0.4){
-    show("❌ Irregular signal (not heartbeat)", false);
+  if(bpm<40 || bpm>180){
+    show("❌ BPM out of human range", false);
     return;
   }
 
-  // BPM ESTIMATION
-  let bpm = Math.round(600 / avg);
+  // 5️⃣ DRAW EXTRACTED WAVEFORM
+  drawWaveform(waveform, peaks);
 
-  // RULE 3: Human BPM only
-  if(bpm < 40 || bpm > 180){
-    show("❌ BPM not human-like", false);
-    return;
-  }
+  show(`✅ Valid ECG Detected<br>
+        BPM: ${bpm}<br>
+        Estimated speed: ${mmPerSec} mm/sec`, true);
 
-  // ✅ PASSED ALL CHECKS
-  show("✅ Valid Heartbeat Detected | BPM: " + bpm, true);
   playHeartbeat(bpm);
 }
 
-// RESULT DISPLAY
-function show(msg, valid){
-  const r = document.getElementById("result");
-  r.textContent = msg;
-  r.className = "result " + (valid ? "valid" : "invalid");
+// DRAW WAVEFORM
+function drawWaveform(wave, peaks){
+  waveCanvas.width = wave.length;
+  waveCanvas.height = 200;
+  waveCtx.clearRect(0,0,waveCanvas.width,waveCanvas.height);
+
+  waveCtx.beginPath();
+  waveCtx.strokeStyle="#2563eb";
+  waveCtx.lineWidth=2;
+
+  for(let i=0;i<wave.length;i++){
+    let y = waveCanvas.height - (wave[i]/srcCanvas.height)*waveCanvas.height;
+    if(i===0) waveCtx.moveTo(i,y);
+    else waveCtx.lineTo(i,y);
+  }
+  waveCtx.stroke();
+
+  // Mark peaks
+  waveCtx.fillStyle="red";
+  peaks.forEach(p=>{
+    let y = waveCanvas.height - (wave[p]/srcCanvas.height)*waveCanvas.height;
+    waveCtx.beginPath();
+    waveCtx.arc(p,y,3,0,Math.PI*2);
+    waveCtx.fill();
+  });
 }
 
-// HEARTBEAT SOUND
+// SOUND
 function playHeartbeat(bpm){
-  const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-  let interval = 60000 / bpm;
+  const audioCtx = new (window.AudioContext||window.webkitAudioContext)();
+  let interval = 60000/bpm;
 
   let beat = setInterval(()=>{
     const osc = audioCtx.createOscillator();
     const gain = audioCtx.createGain();
-
-    osc.type = "sine";
-    osc.frequency.value = 120;
-    gain.gain.value = 0.5;
-
+    osc.frequency.value=120;
+    gain.gain.value=0.5;
     osc.connect(gain);
     gain.connect(audioCtx.destination);
-
     osc.start();
-    osc.stop(audioCtx.currentTime + 0.12);
-  }, interval);
+    osc.stop(audioCtx.currentTime+0.12);
+  },interval);
 
-  setTimeout(()=>clearInterval(beat), 5000);
+  setTimeout(()=>clearInterval(beat),5000);
+}
+
+// RESULT
+function show(msg, ok){
+  const r=document.getElementById("result");
+  r.innerHTML=msg;
+  r.className="result "+(ok?"valid":"invalid");
 }
 </script>
 </body>
