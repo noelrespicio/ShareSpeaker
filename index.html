@@ -78,49 +78,69 @@ function analyze(){
   const imageData = ctx.getImageData(0,0,canvas.width,canvas.height);
   const data = imageData.data;
 
-  // Extract waveform (simple vertical scan)
   let waveform = [];
-  for(let x=0;x<canvas.width;x+=5){
-    for(let y=0;y<canvas.height;y++){
-      let i = (y*canvas.width + x)*4;
-      let brightness = (data[i]+data[i+1]+data[i+2])/3;
-      if(brightness < 80){ // dark line
-        waveform.push(canvas.height - y);
-        break;
+
+  for(let x=0; x<canvas.width; x+=3){
+    let sumY = 0;
+    let count = 0;
+
+    for(let y=0; y<canvas.height; y++){
+      let i = (y * canvas.width + x) * 4;
+      let brightness = (data[i] + data[i+1] + data[i+2]) / 3;
+
+      if(brightness > 200){ // WHITE waveform
+        sumY += y;
+        count++;
       }
     }
-  }
 
-  // Detect peaks
-  let peaks = 0;
-  for(let i=1;i<waveform.length-1;i++){
-    if(waveform[i] > waveform[i-1] && waveform[i] > waveform[i+1]){
-      peaks++;
+    if(count > 0){
+      waveform.push(canvas.height - (sumY / count));
     }
   }
 
-  // Estimate BPM
-  let bpm = Math.min(180, Math.max(40, peaks * 6));
-  document.getElementById("result").innerText = "Estimated BPM: " + bpm;
+  // PEAK detection
+  let peaks = [];
+  for(let i=1;i<waveform.length-1;i++){
+    if(
+      waveform[i] > waveform[i-1] + 15 &&
+      waveform[i] > waveform[i+1] + 15
+    ){
+      peaks.push(i);
+    }
+  }
 
-  playSound(bpm);
+  // BPM estimation
+  let bpm = Math.min(200, Math.max(40, peaks.length * 4));
+
+  document.getElementById("result").innerText =
+    "Detected Beats: " + peaks.length + " | Estimated BPM: " + bpm;
+
+  playHeartbeat(bpm);
 }
 
-function playSound(bpm){
-  const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-  const osc = audioCtx.createOscillator();
-  const gain = audioCtx.createGain();
+function playHeartbeat(bpm){
+  const ctxAudio = new (window.AudioContext || window.webkitAudioContext)();
 
-  osc.type = "sine";
-  osc.frequency.value = bpm * 2;
-  gain.gain.value = 0.2;
+  let interval = 60000 / bpm;
 
-  osc.connect(gain);
-  gain.connect(audioCtx.destination);
+  let beat = setInterval(() => {
+    const osc = ctxAudio.createOscillator();
+    const gain = ctxAudio.createGain();
 
-  osc.start();
-  setTimeout(()=>osc.stop(), 1000);
+    osc.frequency.value = 150;
+    gain.gain.value = 0.4;
+
+    osc.connect(gain);
+    gain.connect(ctxAudio.destination);
+
+    osc.start();
+    osc.stop(ctxAudio.currentTime + 0.1);
+  }, interval);
+
+  setTimeout(()=>clearInterval(beat), 4000);
 }
 </script>
+  
 </body>
 </html>
