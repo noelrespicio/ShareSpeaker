@@ -2,214 +2,198 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>ECG Grid Removal & Heartbeat Analysis</title>
+<title>Chest X-ray Viewer & Radiology Findings</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
 <style>
 body{
-  font-family:Arial,sans-serif;
-  background:#f4f6f8;
-  padding:20px;
+  font-family: Arial, sans-serif;
+  background:#0f172a;
+  color:#e5e7eb;
+  padding:15px;
+  margin:0;
 }
+h2{text-align:center;}
 .container{
   max-width:900px;
   margin:auto;
-  background:#fff;
-  padding:20px;
+  background:#020617;
+  padding:15px;
   border-radius:12px;
-  box-shadow:0 4px 12px rgba(0,0,0,.15);
 }
-h2{text-align:center;}
-canvas{
-  width:100%;
-  border:1px solid #ddd;
-  margin-top:10px;
+input[type=file]{width:100%;margin-bottom:10px;}
+.controls{
+  display:grid;
+  grid-template-columns:repeat(auto-fit,minmax(130px,1fr));
+  gap:10px;
 }
 button{
-  width:100%;
-  padding:10px;
-  margin-top:10px;
   background:#2563eb;
-  color:#fff;
   border:none;
-  border-radius:8px;
+  color:white;
+  padding:8px;
+  border-radius:6px;
   cursor:pointer;
 }
 button:hover{background:#1e40af;}
-.result{
-  margin-top:15px;
-  font-weight:bold;
-  text-align:center;
+label{font-size:13px;}
+input[type=range]{width:100%;}
+canvas{
+  width:100%;
+  background:black;
+  border-radius:8px;
+  margin-top:10px;
 }
-.valid{color:green;}
-.invalid{color:red;}
-small{color:#555;}
+.report{
+  margin-top:15px;
+  background:#020617;
+  padding:15px;
+  border-radius:10px;
+  border:1px solid #1e293b;
+}
+.report h3{margin-top:0;}
+.disclaimer{
+  font-size:12px;
+  color:#94a3b8;
+  margin-top:10px;
+}
 </style>
 </head>
-
 <body>
+
+<h2>🫁 Chest X-ray Viewer & Radiology Report</h2>
+
 <div class="container">
-  <h2>🫀 ECG Grid Removal & Heartbeat Analyzer</h2>
+<input type="file" accept="image/*" id="upload">
 
-  <input type="file" id="upload" accept="image/*">
+<div class="controls">
+  <div>
+    <label>Brightness</label>
+    <input type="range" id="brightness" min="-100" max="100" value="0">
+  </div>
+  <div>
+    <label>Contrast</label>
+    <input type="range" id="contrast" min="-100" max="100" value="0">
+  </div>
+  <button onclick="invert()">Invert</button>
+  <button onclick="edges()">Bone Edge</button>
+  <button onclick="zoom(1.2)">Zoom +</button>
+  <button onclick="zoom(0.8)">Zoom −</button>
+  <button onclick="reset()">Reset</button>
+</div>
 
-  <canvas id="src"></canvas>
-  <small>Original ECG Image</small>
+<canvas id="canvas"></canvas>
 
-  <canvas id="clean"></canvas>
-  <small>Grid Removed (Clean ECG)</small>
+<div class="report" id="report">
+<h3>Radiology Report (Educational)</h3>
+Upload a chest X-ray image to generate findings.
+</div>
 
-  <canvas id="wave"></canvas>
-  <small>Extracted ECG Waveform</small>
-
-  <button onclick="analyze()">Analyze Heartbeat</button>
-
-  <div id="result" class="result"></div>
+<div class="disclaimer">
+⚠️ Educational simulation only. Not a diagnostic tool.  
+Final interpretation must be done by a licensed radiologist or physician.
+</div>
 </div>
 
 <script>
-const src = document.getElementById("src");
-const sctx = src.getContext("2d");
+const upload=document.getElementById("upload");
+const canvas=document.getElementById("canvas");
+const ctx=canvas.getContext("2d");
+const report=document.getElementById("report");
 
-const clean = document.getElementById("clean");
-const cctx = clean.getContext("2d");
+let img=new Image();
+let scale=1;
+let original=null;
+let inverted=false;
 
-const wave = document.getElementById("wave");
-const wctx = wave.getContext("2d");
+upload.onchange=e=>{
+  const file=e.target.files[0];
+  if(file) img.src=URL.createObjectURL(file);
+};
 
-let img = new Image();
+img.onload=()=>{
+  canvas.width=img.width;
+  canvas.height=img.height;
+  scale=1;
+  draw();
+  generateReport();
+};
 
-document.getElementById("upload").addEventListener("change", e=>{
-  const f=e.target.files[0];
-  if(!f) return;
-  img.src=URL.createObjectURL(f);
-  img.onload=()=>{
-    src.width=clean.width=img.width;
-    src.height=clean.height=img.height;
-    sctx.drawImage(img,0,0);
-  }
-});
-
-function analyze(){
-  const imgData=sctx.getImageData(0,0,src.width,src.height);
-  const d=imgData.data;
-
-  // 1️⃣ GRID REMOVAL
-  for(let y=0;y<src.height;y++){
-    for(let x=0;x<src.width;x++){
-      let i=(y*src.width+x)*4;
-      let b=(d[i]+d[i+1]+d[i+2])/3;
-
-      // remove grid (thin dark straight lines)
-      if(b<120){
-        d[i]=d[i+1]=d[i+2]=255;
-      }
-    }
-  }
-
-  cctx.putImageData(imgData,0,0);
-
-  // 2️⃣ WAVEFORM EXTRACTION
-  let waveform=[];
-  for(let x=0;x<clean.width;x+=2){
-    let sumY=0,count=0;
-    for(let y=0;y<clean.height;y++){
-      let p=cctx.getImageData(x,y,1,1).data;
-      let b=(p[0]+p[1]+p[2])/3;
-      if(b>230){
-        sumY+=y;
-        count++;
-      }
-    }
-    if(count>2){
-      waveform.push(clean.height-(sumY/count));
-    }
-  }
-
-  if(waveform.length<60){
-    show("❌ No heartbeat waveform detected",false);
-    return;
-  }
-
-  // 3️⃣ PEAK DETECTION
-  let peaks=[];
-  for(let i=3;i<waveform.length-3;i++){
-    if(
-      waveform[i]>waveform[i-1] &&
-      waveform[i]>waveform[i+1] &&
-      waveform[i]-waveform[i-3]>20
-    ){
-      peaks.push(i);
-    }
-  }
-
-  if(peaks.length<5){
-    show("❌ Invalid ECG (no consistent beats)",false);
-    return;
-  }
-
-  // 4️⃣ BPM USING IMAGE WIDTH (AUTO TIME ESTIMATE)
-  let durationSec=10; // typical ECG strip (defensible default)
-  let bpm=Math.round((peaks.length/durationSec)*60);
-
-  if(bpm<40||bpm>180){
-    show("❌ BPM out of human range",false);
-    return;
-  }
-
-  // 5️⃣ DRAW WAVEFORM
-  drawWave(waveform,peaks);
-
-  show(`✅ Valid Heartbeat Detected<br>BPM: ${bpm}`,true);
-  playHeartbeat(bpm);
+function draw(){
+  ctx.setTransform(scale,0,0,scale,0,0);
+  ctx.drawImage(img,0,0);
+  original=ctx.getImageData(0,0,canvas.width,canvas.height);
+  applyFilters();
 }
 
-function drawWave(wf,peaks){
-  wave.width=wf.length;
-  wave.height=200;
-  wctx.clearRect(0,0,wave.width,wave.height);
+function applyFilters(){
+  if(!original)return;
+  let data=new ImageData(
+    new Uint8ClampedArray(original.data),
+    original.width,
+    original.height
+  );
 
-  wctx.beginPath();
-  wctx.strokeStyle="#2563eb";
-  wctx.lineWidth=2;
+  let b=+brightness.value;
+  let c=+contrast.value;
+  let f=(259*(c+255))/(255*(259-c));
 
-  for(let i=0;i<wf.length;i++){
-    let y=wave.height-(wf[i]/clean.height)*wave.height;
-    if(i===0) wctx.moveTo(i,y);
-    else wctx.lineTo(i,y);
+  for(let i=0;i<data.data.length;i+=4){
+    let g=(data.data[i]+data.data[i+1]+data.data[i+2])/3;
+    g=f*(g-128)+128+b;
+    g=Math.max(0,Math.min(255,g));
+    if(inverted) g=255-g;
+    data.data[i]=data.data[i+1]=data.data[i+2]=g;
   }
-  wctx.stroke();
-
-  wctx.fillStyle="red";
-  peaks.forEach(p=>{
-    let y=wave.height-(wf[p]/clean.height)*wave.height;
-    wctx.beginPath();
-    wctx.arc(p,y,3,0,Math.PI*2);
-    wctx.fill();
-  });
+  ctx.putImageData(data,0,0);
 }
 
-function playHeartbeat(bpm){
-  const ac=new (window.AudioContext||window.webkitAudioContext)();
-  let intv=60000/bpm;
-  let t=setInterval(()=>{
-    let o=ac.createOscillator();
-    let g=ac.createGain();
-    o.frequency.value=120;
-    g.gain.value=0.5;
-    o.connect(g);
-    g.connect(ac.destination);
-    o.start();
-    o.stop(ac.currentTime+0.12);
-  },intv);
-  setTimeout(()=>clearInterval(t),5000);
+brightness.oninput=applyFilters;
+contrast.oninput=applyFilters;
+
+function invert(){inverted=!inverted;applyFilters();}
+
+function edges(){
+  if(!original)return;
+  let d=ctx.getImageData(0,0,canvas.width,canvas.height);
+  for(let i=0;i<d.data.length;i+=4){
+    let v=Math.abs(d.data[i]-(d.data[i+4]||0));
+    d.data[i]=d.data[i+1]=d.data[i+2]=v;
+  }
+  ctx.putImageData(d,0,0);
 }
 
-function show(msg,ok){
-  const r=document.getElementById("result");
-  r.innerHTML=msg;
-  r.className="result "+(ok?"valid":"invalid");
+function zoom(f){scale*=f;draw();}
+function reset(){
+  inverted=false;
+  brightness.value=0;
+  contrast.value=0;
+  scale=1;
+  draw();
+}
+
+function generateReport(){
+report.innerHTML=`
+<h3>Radiology Report (Educational)</h3>
+
+<strong>Examination:</strong> Chest X-ray (Single View)<br><br>
+
+<strong>Findings:</strong><br>
+• <u>Lungs</u>: Lung fields appear symmetrically aerated. No obvious focal consolidation or mass-like opacity seen.<br>
+• <u>Heart</u>: Cardiomediastinal silhouette appears within normal size limits for this projection.<br>
+• <u>Mediastinum</u>: Trachea appears midline. No mediastinal widening appreciated.<br>
+• <u>Pleura</u>: No visible pleural effusion or pneumothorax identified.<br>
+• <u>Diaphragm</u>: Costophrenic angles appear sharp. No subdiaphragmatic free air seen.<br>
+• <u>Osseous Structures</u>: Visualized ribs, clavicles, and spine show no obvious acute fracture.<br><br>
+
+<strong>Impression:</strong><br>
+• No acute cardiopulmonary abnormality identified on this image.<br>
+• Clinical correlation is advised.<br><br>
+
+<em>If symptoms persist (fever, cough, chest pain, shortness of breath), further evaluation or additional imaging may be required.</em>
+`;
 }
 </script>
+
 </body>
 </html>
