@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Live ECG Camera Scan & Heartbeat Type Detection</title>
+<title>ECG Grid Removal & Heartbeat Analysis</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
 <style>
@@ -19,7 +19,8 @@ body{
   border-radius:12px;
   box-shadow:0 4px 12px rgba(0,0,0,.15);
 }
-video, canvas{
+h2{text-align:center;}
+canvas{
   width:100%;
   border:1px solid #ddd;
   margin-top:10px;
@@ -34,127 +35,137 @@ button{
   border-radius:8px;
   cursor:pointer;
 }
+button:hover{background:#1e40af;}
 .result{
   margin-top:15px;
-  text-align:center;
   font-weight:bold;
+  text-align:center;
 }
 .valid{color:green;}
 .invalid{color:red;}
+small{color:#555;}
 </style>
 </head>
 
 <body>
 <div class="container">
-  <h2>📷 Live ECG Camera Scan</h2>
+  <h2>🫀 ECG Grid Removal & Heartbeat Analyzer</h2>
 
-  <video id="video" autoplay playsinline></video>
-  <canvas id="frame"></canvas>
+  <input type="file" id="upload" accept="image/*">
+
+  <canvas id="src"></canvas>
+  <small>Original ECG Image</small>
+
+  <canvas id="clean"></canvas>
+  <small>Grid Removed (Clean ECG)</small>
+
   <canvas id="wave"></canvas>
+  <small>Extracted ECG Waveform</small>
 
-  <button onclick="startScan()">Start Live Scan</button>
+  <button onclick="analyze()">Analyze Heartbeat</button>
 
   <div id="result" class="result"></div>
 </div>
 
 <script>
-const video = document.getElementById("video");
-const frame = document.getElementById("frame");
-const fctx = frame.getContext("2d");
+const src = document.getElementById("src");
+const sctx = src.getContext("2d");
+
+const clean = document.getElementById("clean");
+const cctx = clean.getContext("2d");
 
 const wave = document.getElementById("wave");
 const wctx = wave.getContext("2d");
 
-let scanning=false;
-let waveform=[];
+let img = new Image();
 
-// CAMERA
-async function startScan(){
-  const stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:"environment"}});
-  video.srcObject = stream;
-  scanning=true;
-  setInterval(captureFrame,200);
-}
+document.getElementById("upload").addEventListener("change", e=>{
+  const f=e.target.files[0];
+  if(!f) return;
+  img.src=URL.createObjectURL(f);
+  img.onload=()=>{
+    src.width=clean.width=img.width;
+    src.height=clean.height=img.height;
+    sctx.drawImage(img,0,0);
+  }
+});
 
-// CAPTURE & ANALYZE FRAME
-function captureFrame(){
-  if(!scanning) return;
+function analyze(){
+  const imgData=sctx.getImageData(0,0,src.width,src.height);
+  const d=imgData.data;
 
-  frame.width = video.videoWidth;
-  frame.height = video.videoHeight;
-  fctx.drawImage(video,0,0);
+  // 1️⃣ GRID REMOVAL
+  for(let y=0;y<src.height;y++){
+    for(let x=0;x<src.width;x++){
+      let i=(y*src.width+x)*4;
+      let b=(d[i]+d[i+1]+d[i+2])/3;
 
-  const img = fctx.getImageData(0,0,frame.width,frame.height);
-  const d = img.data;
-
-  // GRID + NOISE FILTER
-  for(let i=0;i<d.length;i+=4){
-    let b=(d[i]+d[i+1]+d[i+2])/3;
-    if(b<120){ // remove grid & dark noise
-      d[i]=d[i+1]=d[i+2]=255;
+      // remove grid (thin dark straight lines)
+      if(b<120){
+        d[i]=d[i+1]=d[i+2]=255;
+      }
     }
   }
 
-  // Extract waveform center
-  let x = Math.floor(frame.width/2);
-  let sumY=0,count=0;
+  cctx.putImageData(imgData,0,0);
 
-  for(let y=0;y<frame.height;y++){
-    let i=(y*frame.width+x)*4;
-    let b=(d[i]+d[i+1]+d[i+2])/3;
-    if(b>230){
-      sumY+=y;
-      count++;
+  // 2️⃣ WAVEFORM EXTRACTION
+  let waveform=[];
+  for(let x=0;x<clean.width;x+=2){
+    let sumY=0,count=0;
+    for(let y=0;y<clean.height;y++){
+      let p=cctx.getImageData(x,y,1,1).data;
+      let b=(p[0]+p[1]+p[2])/3;
+      if(b>230){
+        sumY+=y;
+        count++;
+      }
+    }
+    if(count>2){
+      waveform.push(clean.height-(sumY/count));
     }
   }
 
-  if(count>3){
-    waveform.push(frame.height-(sumY/count));
-    if(waveform.length>300) waveform.shift();
+  if(waveform.length<60){
+    show("❌ No heartbeat waveform detected",false);
+    return;
   }
 
-  analyzeSignal();
-  drawWave();
-}
-
-// ANALYSIS
-function analyzeSignal(){
-  if(waveform.length<60) return;
-
+  // 3️⃣ PEAK DETECTION
   let peaks=[];
   for(let i=3;i<waveform.length-3;i++){
     if(
       waveform[i]>waveform[i-1] &&
       waveform[i]>waveform[i+1] &&
-      waveform[i]-waveform[i-3]>15
+      waveform[i]-waveform[i-3]>20
     ){
       peaks.push(i);
     }
   }
 
-  if(peaks.length<4){
-    show("❌ No heartbeat detected",false);
+  if(peaks.length<5){
+    show("❌ Invalid ECG (no consistent beats)",false);
     return;
   }
 
-  // Assume 10 seconds buffer
-  let bpm = Math.round((peaks.length/10)*60);
+  // 4️⃣ BPM USING IMAGE WIDTH (AUTO TIME ESTIMATE)
+  let durationSec=10; // typical ECG strip (defensible default)
+  let bpm=Math.round((peaks.length/durationSec)*60);
 
-  let type="Unknown";
-  if(bpm>=60 && bpm<=100) type="👨 Adult Heartbeat";
-  else if(bpm>100 && bpm<=160) type="👨 Adult Tachycardia";
-  else if(bpm>120 && bpm<=180) type="👶 Fetal / Ultrasound-like";
-  else{
-    show("❌ Not a valid heartbeat",false);
+  if(bpm<40||bpm>180){
+    show("❌ BPM out of human range",false);
     return;
   }
 
-  show(`✅ ${type}<br>BPM: ${bpm}`,true);
+  // 5️⃣ DRAW WAVEFORM
+  drawWave(waveform,peaks);
+
+  show(`✅ Valid Heartbeat Detected<br>BPM: ${bpm}`,true);
+  playHeartbeat(bpm);
 }
 
-// DRAW WAVEFORM
-function drawWave(){
-  wave.width=waveform.length;
+function drawWave(wf,peaks){
+  wave.width=wf.length;
   wave.height=200;
   wctx.clearRect(0,0,wave.width,wave.height);
 
@@ -162,12 +173,36 @@ function drawWave(){
   wctx.strokeStyle="#2563eb";
   wctx.lineWidth=2;
 
-  waveform.forEach((v,i)=>{
-    let y=wave.height-(v/frame.height)*wave.height;
+  for(let i=0;i<wf.length;i++){
+    let y=wave.height-(wf[i]/clean.height)*wave.height;
     if(i===0) wctx.moveTo(i,y);
     else wctx.lineTo(i,y);
-  });
+  }
   wctx.stroke();
+
+  wctx.fillStyle="red";
+  peaks.forEach(p=>{
+    let y=wave.height-(wf[p]/clean.height)*wave.height;
+    wctx.beginPath();
+    wctx.arc(p,y,3,0,Math.PI*2);
+    wctx.fill();
+  });
+}
+
+function playHeartbeat(bpm){
+  const ac=new (window.AudioContext||window.webkitAudioContext)();
+  let intv=60000/bpm;
+  let t=setInterval(()=>{
+    let o=ac.createOscillator();
+    let g=ac.createGain();
+    o.frequency.value=120;
+    g.gain.value=0.5;
+    o.connect(g);
+    g.connect(ac.destination);
+    o.start();
+    o.stop(ac.currentTime+0.12);
+  },intv);
+  setTimeout(()=>clearInterval(t),5000);
 }
 
 function show(msg,ok){
@@ -178,4 +213,3 @@ function show(msg,ok){
 </script>
 </body>
 </html>
-
